@@ -3,7 +3,12 @@
 <p align="center">
     <img src="screen.png" alt="drawing" width="400"/>
 </p>
-<p align="center">
+
+<center>
+
+[Online demo](https://xaliphostes.github.io/vtk-gocad-loader/)
+
+</center>
 
 A minimal TypeScript + [vtk.js](https://kitware.github.io/vtk-js/) application  
 to load and visualize **GOCAD TSurf** files (`.ts`, `.tsurf`) in 3D, with:
