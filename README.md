@@ -1,14 +1,14 @@
 # 🪨 GOCAD TSurf loader with Iso-Contouring for VTK
 
 <p align="center">
-    <img src="screen.png" alt="drawing" width="400"/>
+    <img src="screen.png" alt="drawing" width="600"/>
 </p>
 
 <center>
 
 [Online demo](https://xaliphostes.github.io/vtk-gocad-loader/)
 
-A GOCAD TSurf file is provided for testing. Download [it here](/models/mnt-tet-fault.ts)
+A GOCAD TSurf file is provided for testing. Download [it here](/public/models/mnt-tet-fault.ts)
 
 </center>
 

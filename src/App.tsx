@@ -78,7 +78,7 @@ export default function App() {
 
     // UI state
     const [bandsEnabled, setBandsEnabled] = useState(false);
-    const [bandCount, setBandCount] = useState(20);
+    const [bandCount, setBandCount] = useState(13);
     const [linesEnabled, setLinesEnabled] = useState(false);
     const [lineCount, setLineCount] = useState(10);
 
@@ -88,7 +88,7 @@ export default function App() {
 
     // UI state
     const [selectedProp, setSelectedProp] = useState('');
-    const [preset, setPreset] = useState('Viridis (matplotlib)');
+    const [preset, setPreset] = useState('rainbow');
 
     // Single instance of the loader
     const loaderRef = useRef<any>(null);
@@ -179,6 +179,38 @@ export default function App() {
                 fsrw.delete();
             }
         };
+    }, []);
+
+    // 🟢 Auto-load default model once at startup
+    useEffect(() => {
+        const modelPath = import.meta.env.BASE_URL + 'models/mnt-tet-fault.ts';
+        // const modelPath = '/models/mnt-tet-fault.ts';
+
+        async function loadDefaultModel() {
+            try {
+                const resp = await fetch(modelPath);
+                if (!resp.ok) throw new Error(`Failed to load ${modelPath}`);
+                const text = await resp.text();
+
+                // use the loader’s text API
+                const { polyData: pd, properties: props } =
+                    await loaderRef.current.loadFromText(text);
+
+                // feed into your existing pipeline
+                setPolyData(pd);
+                setProperties(props);
+                // e.g. your mapper setup:
+                // surfaceMapper.setInputData(pd);
+                renRef.current?.resetCamera();
+                rwRef.current?.render();
+
+                console.log(`Loaded default model: ${modelPath}`);
+            } catch (err) {
+                console.error('Error loading default model:', err);
+            }
+        }
+
+        loadDefaultModel();
     }, []);
 
     // Synchronize line count with band count when bands are enabled
@@ -372,63 +404,37 @@ export default function App() {
             <div
                 style={{
                     position: 'absolute', top: 12, left: 12, zIndex: 10,
-                    background: 'rgba(255,255,255,0.9)', backdropFilter: 'blur(6px)',
+                    background: 'rgba(255,255,255,0.5)', backdropFilter: 'blur(6px)',
                     padding: '10px 12px', borderRadius: 10, boxShadow: '0 2px 8px rgba(0,0,0,.12)',
-                    display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap',
+                    display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap'
                 }}
             >
-                <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                    <span style={{ fontSize: 12, color: '#333' }}>Property</span>
-                    <select value={selectedProp} onChange={(e) => setSelectedProp(e.target.value)} style={{ fontSize: 13, padding: '6px 8px' }}>
+
+                <label className="field">
+                    <span className="label">Load file</span>
+                    <input className="select select--small" type="file" accept=".tsurf,.ts,.txt" onChange={onPickFile} />
+                </label>
+
+                <label className="field">
+                    <span className="label">Property</span>
+                    <select className="select" value={selectedProp} onChange={(e) => setSelectedProp(e.target.value)}>
                         {propOptions}
                     </select>
                 </label>
 
-                <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                    <span style={{ fontSize: 12, color: '#333' }}>Color map</span>
-                    <select value={preset} onChange={(e) => setPreset(e.target.value)} style={{ fontSize: 13, padding: '6px 8px' }}>
+                <label className="field">
+                    <span className="label">Color map</span>
+                    <select className="select select--small" value={preset} onChange={(e) => setPreset(e.target.value)}>
                         {presetOptions}
                     </select>
                 </label>
-
-                <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                    <span style={{ fontSize: 12, color: '#333' }}>Load file</span>
-                    <input type="file" accept=".tsurf,.ts,.txt" onChange={onPickFile} />
-                </label>
-
-                {/* Separator */}
-                <div style={{ width: 1, height: 24, background: '#ddd' }} />
-
-                {/* Filled bands controls */}
-                <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                    <input
-                        type="checkbox"
-                        checked={bandsEnabled}
-                        onChange={(e) => setBandsEnabled(e.target.checked)}
-                    />
-                    <span style={{ fontSize: 12, color: '#333' }}>Filled bands</span>
-                </label>
-
-                {bandsEnabled && (
-                    <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                        <span style={{ fontSize: 12, color: '#333' }}>Bands</span>
-                        <input
-                            type="number"
-                            min={2}
-                            max={32}
-                            value={bandCount}
-                            onChange={(e) => setBandCount(parseInt(e.target.value))}
-                            style={{ width: 60, fontSize: 13, padding: '4px 6px' }}
-                        />
-                    </label>
-                )}
 
                 {/* Separator */}
                 <div style={{ width: 1, height: 24, background: '#ddd' }} />
 
                 {/* Contour lines controls */}
-                <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                    <input
+                <label className="field">
+                    <input className="checkbox"
                         type="checkbox"
                         checked={linesEnabled}
                         onChange={(e) => setLinesEnabled(e.target.checked)}
@@ -436,19 +442,28 @@ export default function App() {
                     <span style={{ fontSize: 12, color: '#333' }}>Contour lines</span>
                 </label>
 
-                {/* {linesEnabled && (
-                    <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                        <span style={{ fontSize: 12, color: '#333' }}>Lines</span>
+                {/* Filled bands controls */}
+                <label className="field">
+                    <input className="checkbox" type="checkbox" checked={bandsEnabled} onChange={(e) => setBandsEnabled(e.target.checked)} />
+                    <span className="label">Filled iso-bands</span>
+                </label>
+
+                {bandsEnabled && (
+                    <label className="field">
+                        <span className="label">Bands</span>
                         <input
-                            type="number"
-                            min={2}
-                            max={50}
-                            value={lineCount}
-                            onChange={(e) => setLineCount(parseInt(e.target.value))}
-                            style={{ width: 60, fontSize: 13, padding: '4px 6px' }}
+                            className="select select--small"
+                            style={{ width: 40, textAlign: 'right' }}
+                            type="number" min={2} max={32}
+                            value={bandCount}
+                            onChange={(e) => setBandCount(parseInt(e.target.value))}
                         />
                     </label>
-                )} */}
+                )}
+
+                {/* Separator */}
+                <div style={{ width: 1, height: 24, background: '#ddd' }} />
+
             </div>
         </div>
     );
