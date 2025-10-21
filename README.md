@@ -1,5 +1,10 @@
 # 🪨 GOCAD TSurf loader with Iso-Contouring for VTK
 
+<p align="center">
+    <img src="screen.png" alt="drawing" width="400"/>
+</p>
+<p align="center">
+
 A minimal TypeScript + [vtk.js](https://kitware.github.io/vtk-js/) application  
 to load and visualize **GOCAD TSurf** files (`.ts`, `.tsurf`) in 3D, with:
 
