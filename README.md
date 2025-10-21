@@ -8,6 +8,8 @@
 
 [Online demo](https://xaliphostes.github.io/vtk-gocad-loader/)
 
+A GOCAD TSurf file is provided for testing. Download [it here](/models/mnt-tet-fault.ts)
+
 </center>
 
 A minimal TypeScript + [vtk.js](https://kitware.github.io/vtk-js/) application  

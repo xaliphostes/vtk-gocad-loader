@@ -1,5 +1,5 @@
 // App.tsx – Updated to use VTK IColorMapPreset interface
-// Uses the same loading schema as ModelLoader with VTK preset-based coloring
+// Supports both filled bands and contour lines
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import React, { useEffect, useMemo, useRef, useState } from 'react';
@@ -13,6 +13,7 @@ import vtkColorTransferFunction from '@kitware/vtk.js/Rendering/Core/ColorTransf
 import vtkColorMaps from '@kitware/vtk.js/Rendering/Core/ColorTransferFunction/ColorMaps';
 
 import vtkIsoContoursFilled from './contours/vtkIsoContoursFilled';
+import vtkIsoContoursLines from './contours/vtkIsoContoursLines';
 
 // Loader (single responsibility: turn a file/text into { polyData, properties })
 import ModelLoader from './ModelLoader';
@@ -60,18 +61,26 @@ export default function App() {
     const renRef = useRef<any>(null);
     const rwRef = useRef<any>(null);
 
-    // pipelines
+    // Surface pipeline
     const [surfaceCTF] = useState(() => vtkColorTransferFunction.newInstance());
     const [surfaceMapper] = useState(() => vtkMapper.newInstance());
     const [surfaceActor] = useState(() => vtkActor.newInstance());
 
-    // iso-contour pipeline
+    // Iso-contour filled bands pipeline
     const [isoFilter] = useState(() => (vtkIsoContoursFilled as any).newInstance?.({}) ?? null);
     const [isoMapper] = useState(() => vtkMapper.newInstance());
     const [isoActor] = useState(() => vtkActor.newInstance());
 
+    // Iso-contour lines pipeline
+    const [isoLinesFilter] = useState(() => (vtkIsoContoursLines as any).newInstance?.({}) ?? null);
+    const [isoLinesMapper] = useState(() => vtkMapper.newInstance());
+    const [isoLinesActor] = useState(() => vtkActor.newInstance());
+
+    // UI state
     const [bandsEnabled, setBandsEnabled] = useState(false);
     const [bandCount, setBandCount] = useState(20);
+    const [linesEnabled, setLinesEnabled] = useState(false);
+    const [lineCount, setLineCount] = useState(10);
 
     // data state
     const [polyData, setPolyData] = useState<VtkPolyData | null>(null);
@@ -97,7 +106,6 @@ export default function App() {
             return;
         }
 
-
         const fsrw = vtkFullScreenRenderWindow.newInstance({
             container: container,
             containerStyle: { position: 'relative', width: '100%', height: '100%' },
@@ -114,20 +122,39 @@ export default function App() {
 
         ren.setBackground(0.5, 0.5, 0.5);
 
+        // Setup surface actor
         surfaceMapper.setLookupTable(surfaceCTF);
         surfaceMapper.setUseLookupTableScalarRange(true);
         surfaceMapper.setScalarVisibility(false);
         surfaceActor.setMapper(surfaceMapper);
         ren.addActor(surfaceActor);
 
+        // Setup iso-bands actor
         if (isoFilter) {
             isoMapper.setInputConnection(isoFilter.getOutputPort());
             isoMapper.setColorModeToDirectScalars();
             isoMapper.setColorByArrayName('IsoBandColor');
             isoMapper.setScalarVisibility(true);
             isoActor.setMapper(isoMapper);
-            isoActor.setVisibility(false);       // hidden by default
+            isoActor.setVisibility(false);
             ren.addActor(isoActor);
+        }
+
+        // Setup iso-lines actor
+        if (isoLinesFilter) {
+            isoLinesMapper.setInputConnection(isoLinesFilter.getOutputPort());
+            isoLinesMapper.setColorModeToDirectScalars();
+            isoLinesMapper.setColorByArrayName('IsoLineColor');
+            isoLinesMapper.setScalarVisibility(true);
+
+            // Add polygon offset to prevent z-fighting with bands
+            isoLinesMapper.setResolveCoincidentTopologyToPolygonOffset();
+            isoLinesMapper.setResolveCoincidentTopologyPolygonOffsetParameters(2, 1);
+
+            isoLinesActor.setMapper(isoLinesMapper);
+            isoLinesActor.getProperty().setLineWidth(2);
+            isoLinesActor.setVisibility(false);
+            ren.addActor(isoLinesActor);
         }
 
         renRef.current = ren;
@@ -152,19 +179,26 @@ export default function App() {
                 fsrw.delete();
             }
         };
-
-
-        // checkDimensions();
     }, []);
 
-    // iso contours
+    // Synchronize line count with band count when bands are enabled
+    useEffect(() => {
+        if (bandsEnabled) {
+            setLineCount(bandCount);
+        }
+    }, [bandsEnabled, bandCount]);
+
+    // iso contour filled bands
     useEffect(() => {
         if (!polyData || !isoFilter) return;
         const arr = selectedProp ? polyData.getPointData().getArrayByName(selectedProp) : null;
 
         if (!bandsEnabled || !arr) {
             isoActor.setVisibility(false);
-            surfaceActor.setVisibility(true);
+            // Show surface only if lines are also disabled
+            if (!linesEnabled) {
+                surfaceActor.setVisibility(true);
+            }
             rwRef.current?.render();
             return;
         }
@@ -186,9 +220,51 @@ export default function App() {
         surfaceActor.setVisibility(false);
         isoActor.setVisibility(true);
         rwRef.current?.render();
-    }, [bandsEnabled, bandCount, selectedProp, preset, polyData]);
+    }, [bandsEnabled, bandCount, selectedProp, preset, polyData, linesEnabled]);
 
-    // color updates
+    // iso contour lines
+    useEffect(() => {
+        if (!polyData || !isoLinesFilter) return;
+        const arr = selectedProp ? polyData.getPointData().getArrayByName(selectedProp) : null;
+
+        if (!linesEnabled || !arr) {
+            isoLinesActor.setVisibility(false);
+            if (!bandsEnabled) {
+                surfaceActor.setVisibility(true);
+            }
+            rwRef.current?.render();
+            return;
+        }
+
+        const [mn, mx] = finiteRangeOfArray(arr);
+        const isoValues = makeUniformIsoValues(mn, mx, lineCount);
+
+        // Get the VTK preset object
+        // If bands are enabled, use black/grayscale preset, otherwise use selected preset
+        const presetName = bandsEnabled ? 'Grayscale' : preset;
+        const presetObj = getPresetByName(presetName);
+
+        isoLinesFilter.setScalarArrayName(selectedProp);
+        isoLinesFilter.setIsoValues(isoValues);
+        if (presetObj) {
+            isoLinesFilter.setPreset(presetObj);
+        }
+        isoLinesFilter.setNumberOfColors(256);
+
+        // If bands are enabled, use constant black color
+        if (bandsEnabled) {
+            isoLinesMapper.setScalarVisibility(false);
+            isoLinesActor.getProperty().setColor(0, 0, 0); // Black
+        } else {
+            isoLinesMapper.setScalarVisibility(true);
+        }
+
+        surfaceActor.setVisibility(false);
+        isoLinesActor.setVisibility(true);
+        rwRef.current?.render();
+    }, [linesEnabled, lineCount, selectedProp, preset, polyData, bandsEnabled]);
+
+    // color updates for surface
     useEffect(() => {
         if (!polyData) return;
         const pd = polyData as any;
@@ -253,6 +329,7 @@ export default function App() {
             surfaceMapper.setInputData(pd);
 
             if (isoFilter) isoFilter.setInputData(pd);
+            if (isoLinesFilter) isoLinesFilter.setInputData(pd);
 
             renRef.current?.resetCamera();
             rwRef.current?.render();
@@ -291,7 +368,7 @@ export default function App() {
         <div style={{ height: '100vh', position: 'relative', overflow: 'hidden' }}>
             <div ref={vtkRootRef} style={{ position: 'absolute', inset: 0 }} />
 
-            {/* Minimal panel: Property + Color map + File loader */}
+            {/* Control panel */}
             <div
                 style={{
                     position: 'absolute', top: 12, left: 12, zIndex: 10,
@@ -319,26 +396,59 @@ export default function App() {
                     <input type="file" accept=".tsurf,.ts,.txt" onChange={onPickFile} />
                 </label>
 
+                {/* Separator */}
+                <div style={{ width: 1, height: 24, background: '#ddd' }} />
+
+                {/* Filled bands controls */}
                 <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                     <input
                         type="checkbox"
                         checked={bandsEnabled}
                         onChange={(e) => setBandsEnabled(e.target.checked)}
                     />
-                    <span style={{ fontSize: 12, color: '#333' }}>Filled iso-bands</span>
+                    <span style={{ fontSize: 12, color: '#333' }}>Filled bands</span>
                 </label>
 
+                {bandsEnabled && (
+                    <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                        <span style={{ fontSize: 12, color: '#333' }}>Bands</span>
+                        <input
+                            type="number"
+                            min={2}
+                            max={32}
+                            value={bandCount}
+                            onChange={(e) => setBandCount(parseInt(e.target.value))}
+                            style={{ width: 60, fontSize: 13, padding: '4px 6px' }}
+                        />
+                    </label>
+                )}
+
+                {/* Separator */}
+                <div style={{ width: 1, height: 24, background: '#ddd' }} />
+
+                {/* Contour lines controls */}
                 <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                    <span style={{ fontSize: 12, color: '#333' }}>Bands</span>
                     <input
-                        type="number"
-                        min={2}
-                        max={32}
-                        value={bandCount}
-                        onChange={(e) => setBandCount(parseInt(e.target.value))}
-                        style={{ width: 60 }}
+                        type="checkbox"
+                        checked={linesEnabled}
+                        onChange={(e) => setLinesEnabled(e.target.checked)}
                     />
+                    <span style={{ fontSize: 12, color: '#333' }}>Contour lines</span>
                 </label>
+
+                {/* {linesEnabled && (
+                    <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                        <span style={{ fontSize: 12, color: '#333' }}>Lines</span>
+                        <input
+                            type="number"
+                            min={2}
+                            max={50}
+                            value={lineCount}
+                            onChange={(e) => setLineCount(parseInt(e.target.value))}
+                            style={{ width: 60, fontSize: 13, padding: '4px 6px' }}
+                        />
+                    </label>
+                )} */}
             </div>
         </div>
     );
