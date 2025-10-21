@@ -77,7 +77,6 @@ export default function App() {
     const [bandCount, setBandCount] = useState(20);
 
 
-
     // data state
     const [polyData, setPolyData] = useState<VtkPolyData | null>(null);
     const [properties, setProperties] = useState<{ name: string; size?: number }[]>([]);

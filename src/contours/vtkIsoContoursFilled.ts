@@ -2,27 +2,31 @@
 // A vtk.js filter that wraps your custom iso-contour band filling algorithm
 // from IsoContoursFilled.ts and exposes it as a vtk.js pipeline component.
 
-// import macro from 'vtk.js/Sources//macros'
-// import vtkPolyData from 'vtk.js/Sources/Common/DataModel/PolyData'
-// import vtkDataArray from 'vtk.js/Sources/Common/Core/DataArray'
-// import vtkPoints from 'vtk.js/Sources/Common/Core/Points'
+/* eslint-disable @typescript-eslint/no-explicit-any */
+import vtkColorTransferFunction from '@kitware/vtk.js/Rendering/Core/ColorTransferFunction';
+import vtkColorMaps from '@kitware/vtk.js/Rendering/Core/ColorTransferFunction/ColorMaps';
+import vtkMapper from '@kitware/vtk.js/Rendering/Core/Mapper';
+import vtkActor from '@kitware/vtk.js/Rendering/Core/Actor';
 
 import macro from '@kitware/vtk.js/macros'
 import vtkPolyData from '@kitware/vtk.js/Common/DataModel/PolyData';
 import vtkPoints from '@kitware/vtk.js/Common/Core/Points';
 import vtkDataArray from '@kitware/vtk.js/Common/Core/DataArray';
-//import vtkPolyDataNormals from '@kitware/vtk.js/Filters/Core/PolyDataNormals';
 
 // Your algo (provided in the upload). We use it as a black box here.
 import { createIsoContoursFilled } from './IsoContoursFilled';
 import { BufferGeometry, BufferAttribute, Uint32BufferAttribute } from './attributes';
 
-export interface IsoContoursFilledModel {
+import type { IColorMapPreset } from '../types/vtkColorMapPreset';
+
+type VtkPolyData = any;
+
+export interface IsoFilledOptions {
     classHierarchy: string[];
     isoValues: number[];
     scalarArrayName?: string;
     scalarRange?: [number, number] | null;
-    lut?: string;
+    lut?: string | IColorMapPreset;
     numberOfColors?: number;
 }
 
@@ -46,6 +50,40 @@ export interface IsoContoursFilledPublicAPI {
     // The pipeline callback we define below
     requestData?: (inData: any, outData: any) => void;
     modified?: () => void;
+}
+
+function resolvePreset(input: string | IColorMapPreset | undefined | null): IColorMapPreset | null {
+    if (!input) return null;
+    if (typeof input === 'string') {
+        return (vtkColorMaps as any).getPresetByName?.(input) ?? null;
+    }
+    return input; // already a preset object
+}
+
+function buildCTF(preset: IColorMapPreset | null, range?: [number, number]) {
+    const ctf = vtkColorTransferFunction.newInstance();
+    if (preset) {
+        ctf.applyColorMap(preset as any);
+    } else {
+        // Fallback to a safe default
+        const viridis = (vtkColorMaps as any).getPresetByName?.('Viridis (matplotlib)');
+        if (viridis) ctf.applyColorMap(viridis);
+    }
+    if (range) {
+        ctf.setMappingRange(range[0], range[1]);
+        ctf.updateRange();
+    }
+    return ctf;
+}
+
+// Optional: expose names and/or full presets for UI pickers
+export function listIsoPresetNames(): string[] {
+    return (vtkColorMaps as any).rgbPresetNames as string[];
+}
+export function listIsoPresets(): IColorMapPreset[] {
+    return listIsoPresetNames()
+        .map((n) => (vtkColorMaps as any).getPresetByName?.(n))
+        .filter(Boolean);
 }
 
 // ----------------------------------------------------------------------------
@@ -82,9 +120,9 @@ function polysToTriangles(polys: Uint32Array | number[]): number[] {
 // ----------------------------------------------------------------------------
 // vtk class implementation
 // ----------------------------------------------------------------------------
-function vtkIsoContoursFilled(publicAPI: IsoContoursFilledPublicAPI, model: Partial<IsoContoursFilledModel>) {
+function vtkIsoContoursFilled(publicAPI: IsoContoursFilledPublicAPI, model: Partial<IsoFilledOptions>) {
     // Defaults
-    const defaults: IsoContoursFilledModel = {
+    const defaults: IsoFilledOptions = {
         classHierarchy: [],
         isoValues: [],
         scalarArrayName: undefined,
@@ -92,6 +130,7 @@ function vtkIsoContoursFilled(publicAPI: IsoContoursFilledPublicAPI, model: Part
         lut: 'Rainbow',
         numberOfColors: 256,
     } as any;
+    
 
     Object.assign(model, defaults, model);
 
@@ -202,7 +241,7 @@ function vtkIsoContoursFilled(publicAPI: IsoContoursFilledPublicAPI, model: Part
 // ----------------------------------------------------------------------------
 // Object factory
 // ----------------------------------------------------------------------------
-export function extend(publicAPI: any, model: Partial<IsoContoursFilledModel> = {}) {
+export function extend(publicAPI: any, model: Partial<IsoFilledOptions> = {}) {
     vtkIsoContoursFilled(publicAPI as any, model);
 }
 
