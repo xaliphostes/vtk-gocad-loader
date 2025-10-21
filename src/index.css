@@ -1,0 +1,13 @@
+/* fill the viewport and remove default margins */
+html, body, #root {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+}
+
+/* optional: ensure it can’t collapse due to flex/grid parents */
+#root {
+  min-width: 100%;
+  min-height: 100%;
+  position: relative; /* gives positioned children a reference box */
+}
