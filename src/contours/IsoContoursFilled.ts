@@ -6,7 +6,6 @@
 import { BufferAttribute, BufferGeometry, Uint32BufferAttribute } from "./attributes";
 import type { IColorMapPreset } from "../types/vtkColorMapPreset";
 import { 
-    valueToColor, 
     createLookupTable, 
     sampleLookupTable,
     DEFAULT_PRESET,

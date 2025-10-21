@@ -1,14 +1,5 @@
-// App.tsx — uses the same loading schema as your ModelLoader (simplified: only model loading)
-// This version delegates all reading/parsing of TSurf to ./ModelLoader and focuses on rendering + UI.
-// Assumptions about ModelLoader (kept flexible):
-//   - default export class ModelLoader
-//   - provides ONE of the following async APIs that return { polyData, properties }
-//       • loadFromFile(file: File)
-//       • load(file: File)
-//       • loadFromText(text: string)
-//       • parse(text: string)
-//   - The returned "properties" is an array of { name: string, size?: number } or richer; we just read name/size.
-// If your ModelLoader exposes different method names, adjust the switch in callLoader() below.
+// App.tsx – Updated to use VTK IColorMapPreset interface
+// Uses the same loading schema as ModelLoader with VTK preset-based coloring
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import React, { useEffect, useMemo, useRef, useState } from 'react';
@@ -21,10 +12,12 @@ import vtkMapper from '@kitware/vtk.js/Rendering/Core/Mapper';
 import vtkColorTransferFunction from '@kitware/vtk.js/Rendering/Core/ColorTransferFunction';
 import vtkColorMaps from '@kitware/vtk.js/Rendering/Core/ColorTransferFunction/ColorMaps';
 
-import vtkIsoContoursFilled from './contours/vtkIsoContoursFilled'
+import vtkIsoContoursFilled from './contours/vtkIsoContoursFilled';
 
 // Loader (single responsibility: turn a file/text into { polyData, properties })
-import ModelLoader from './ModelLoader'
+import ModelLoader from './ModelLoader';
+
+import type { IColorMapPreset } from './types/vtkColorMapPreset';
 
 // --- types ---
 type VtkPolyData = any;
@@ -37,8 +30,12 @@ function listPresetNames(): string[] {
         : ['Viridis (matplotlib)', 'Plasma (matplotlib)', 'Inferno (matplotlib)', 'Magma (matplotlib)', 'Turbo'];
 }
 
+function getPresetByName(name: string): IColorMapPreset | null {
+    return (vtkColorMaps as any).getPresetByName?.(name) || null;
+}
+
 function applyPreset(ctf: any, name: string, range?: [number, number]) {
-    const preset = (vtkColorMaps as any).getPresetByName?.(name) || null;
+    const preset = getPresetByName(name);
     if (preset) ctf.applyColorMap(preset);
     if (range) {
         ctf.setMappingRange(range[0], range[1]);
@@ -76,7 +73,6 @@ export default function App() {
     const [bandsEnabled, setBandsEnabled] = useState(false);
     const [bandCount, setBandCount] = useState(20);
 
-
     // data state
     const [polyData, setPolyData] = useState<VtkPolyData | null>(null);
     const [properties, setProperties] = useState<{ name: string; size?: number }[]>([]);
@@ -85,21 +81,38 @@ export default function App() {
     const [selectedProp, setSelectedProp] = useState('');
     const [preset, setPreset] = useState('Viridis (matplotlib)');
 
-    // Single instance of the loader — mirrors your ModelLoader usage pattern
+    // Single instance of the loader
     const loaderRef = useRef<any>(null);
     if (!loaderRef.current) loaderRef.current = new (ModelLoader as any)();
 
     // init vtk
     useEffect(() => {
         if (!vtkRootRef.current) return;
+
+        // Ensure the container has dimensions before initializing VTK
+        const container = vtkRootRef.current;
+
+        if (container.clientWidth === 0 || container.clientHeight === 0) {
+            console.warn('Container has no dimensions, delaying VTK initialization');
+            return;
+        }
+
+
         const fsrw = vtkFullScreenRenderWindow.newInstance({
-            container: vtkRootRef.current,
+            container: container,
             containerStyle: { position: 'relative', width: '100%', height: '100%' },
         });
         const ren = fsrw.getRenderer();
         const rw = fsrw.getRenderWindow();
-        ren.setBackground(0.5, 0.5, 0.5)                 // red
-        // rw.render()                                // force a draw now
+        const interactor = rw.getInteractor();
+
+        // Ensure interactor is properly initialized
+        if (interactor && container) {
+            interactor.setView(fsrw.getApiSpecificRenderWindow());
+            interactor.initialize();
+        }
+
+        ren.setBackground(0.5, 0.5, 0.5);
 
         surfaceMapper.setLookupTable(surfaceCTF);
         surfaceMapper.setUseLookupTableScalarRange(true);
@@ -117,17 +130,31 @@ export default function App() {
             ren.addActor(isoActor);
         }
 
-
-
         renRef.current = ren;
         rwRef.current = rw;
 
-        const onResize = () => fsrw.resize();
+        const onResize = () => {
+            if (fsrw && fsrw.resize) {
+                fsrw.resize();
+            }
+        };
+
+        // Add a small delay to ensure DOM is fully ready
+        const resizeTimeout = setTimeout(() => {
+            onResize();
+        }, 100);
+
         window.addEventListener('resize', onResize);
         return () => {
+            clearTimeout(resizeTimeout);
             window.removeEventListener('resize', onResize);
-            fsrw.delete?.();
+            if (fsrw && fsrw.delete) {
+                fsrw.delete();
+            }
         };
+
+
+        // checkDimensions();
     }, []);
 
     // iso contours
@@ -145,17 +172,21 @@ export default function App() {
         const [mn, mx] = finiteRangeOfArray(arr);
         const isoValues = makeUniformIsoValues(mn, mx, bandCount);
 
+        // Get the VTK preset object
+        const presetObj = getPresetByName(preset);
+
         isoFilter.setScalarArrayName(selectedProp);
         isoFilter.setScalarRange([mn, mx]);
         isoFilter.setIsoValues(isoValues);
-        isoFilter.setLut(preset);
+        if (presetObj) {
+            isoFilter.setPreset(presetObj);
+        }
         isoFilter.setNumberOfColors(256);
 
         surfaceActor.setVisibility(false);
         isoActor.setVisibility(true);
         rwRef.current?.render();
     }, [bandsEnabled, bandCount, selectedProp, preset, polyData]);
-
 
     // color updates
     useEffect(() => {
@@ -184,15 +215,13 @@ export default function App() {
         }
         applyPreset(surfaceCTF, preset, [mn, mx]);
 
-        console.log(mn, mx)
-
         surfaceMapper.setColorByArrayName(selectedProp);
         surfaceMapper.setScalarRange(mn, mx);
         surfaceMapper.setScalarVisibility(true);
         rwRef.current?.render();
     }, [selectedProp, preset, polyData]);
 
-    // --- loader bridge — use the same schema as ModelLoader ---
+    // --- loader bridge ---
     async function callLoaderWithFile(file: File) {
         const L: any = loaderRef.current;
         let result: any = null;
@@ -259,10 +288,8 @@ export default function App() {
     );
 
     return (
-        <div style={{ height: '100vh', position: 'relative' }}>
-
-            {/* <div ref={vtkRootRef} style={{ position: 'absolute', inset: 0 }} /> */}
-            <div ref={vtkRootRef} style={{ position: 'absolute', inset: 0, background: 'rgba(0,255,0,0.1)' }} />
+        <div style={{ height: '100vh', position: 'relative', overflow: 'hidden' }}>
+            <div ref={vtkRootRef} style={{ position: 'absolute', inset: 0 }} />
 
             {/* Minimal panel: Property + Color map + File loader */}
             <div
