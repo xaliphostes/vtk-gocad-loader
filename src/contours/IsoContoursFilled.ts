@@ -13,7 +13,7 @@ import {
     DEFAULT_PRESET,
     type RGBColor
 } from "./vtkColorUtils";
-import { computeSmoothNormalsWithWelding } from "./smoothNormals";
+//import { computeSmoothNormalsWithWelding } from "./smoothNormals";
 
 export type IsoFillReturnedType = {
     position: number[],

@@ -1,4 +1,4 @@
-// App.tsx – Updated to use VTK IColorMapPreset interface
+// App.tsx â€“ Updated to use VTK IColorMapPreset interface
 // Supports both filled bands and contour lines
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -82,6 +82,7 @@ export default function App() {
     const [linesEnabled, setLinesEnabled] = useState(false);
     const [lineCount, setLineCount] = useState(10);
     const [smoothNormals, setSmoothNormals] = useState(true);
+    const [scale, setScale] = useState(1.0);
 
     // data state
     const [polyData, setPolyData] = useState<VtkPolyData | null>(null);
@@ -192,7 +193,7 @@ export default function App() {
         };
     }, []);
 
-    // 🟢 Auto-load default model once at startup
+    // ðŸŸ¢ Auto-load default model once at startup
     useEffect(() => {
         const modelPath = import.meta.env.BASE_URL + 'models/mnt-tet-fault.ts';
         // const modelPath = '/models/mnt-tet-fault.ts';
@@ -203,7 +204,7 @@ export default function App() {
                 if (!resp.ok) throw new Error(`Failed to load ${modelPath}`);
                 const text = await resp.text();
 
-                // use the loader’s text API
+                // use the loaderâ€™s text API
                 const { polyData: pd, properties: props } =
                     await loaderRef.current.loadFromText(text);
 
@@ -230,6 +231,14 @@ export default function App() {
             setLineCount(bandCount);
         }
     }, [bandsEnabled, bandCount]);
+
+    // Apply scale transformation to all actors
+    useEffect(() => {
+        surfaceActor.setScale(1, 1, scale);
+        isoActor.setScale(1, 1, scale);
+        isoLinesActor.setScale(1, 1, scale);
+        rwRef.current?.render();
+    }, [scale]);
 
     // iso contour filled bands
     useEffect(() => {
@@ -398,7 +407,7 @@ export default function App() {
     const propOptions = useMemo(
         () => [
             <option key="-none-" value="">
-                — none —
+                --none--
             </option>,
             ...properties.map((p) => (
                 <option key={p.name} value={p.name}>
@@ -435,12 +444,33 @@ export default function App() {
                     </select>
                 </label>
 
+                {/* <div style={{ width: '100%', height: 0 }} /> */}
+
                 <label className="field">
                     <span className="label">Color map</span>
                     <select className="select select--small" value={preset} onChange={(e) => setPreset(e.target.value)}>
                         {presetOptions}
                     </select>
                 </label>
+
+                {/* Separator */}
+                <div style={{ width: 1, height: 24, background: '#ddd' }} />
+
+                {/* Scale control */}
+                <label className="field">
+                    <span className="label">Scale</span>
+                    <input
+                        className="select select--small"
+                        style={{ width: 60, textAlign: 'right' }}
+                        type="number"
+                        min={0.1}
+                        max={10}
+                        step={0.5}
+                        value={scale}
+                        onChange={(e) => setScale(parseFloat(e.target.value) || 1.0)}
+                    />
+                </label>
+
 
                 {/* Separator */}
                 <div style={{ width: 1, height: 24, background: '#ddd' }} />
@@ -461,7 +491,7 @@ export default function App() {
                     <span className="label">Filled iso-bands</span>
                 </label>
 
-                {bandsEnabled && (
+                {(bandsEnabled||linesEnabled) && (
                     <label className="field">
                         <span className="label">Bands</span>
                         <input
