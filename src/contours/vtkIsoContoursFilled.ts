@@ -1,9 +1,8 @@
 // vtkIsoContoursFilled.ts
 // A vtk.js filter that wraps the custom iso-contour band filling algorithm
-// Updated to use VTK's IColorMapPreset interface directly
+// FIXED VERSION: Properly adds normals to the output polydata
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
-// import vtkColorTransferFunction from '@kitware/vtk.js/Rendering/Core/ColorTransferFunction';
 import vtkColorMaps from '@kitware/vtk.js/Rendering/Core/ColorTransferFunction/ColorMaps';
 
 import macro from '@kitware/vtk.js/macros';
@@ -17,8 +16,6 @@ import { BufferGeometry, BufferAttribute, Uint32BufferAttribute } from './attrib
 
 import type { IColorMapPreset } from '../types/vtkColorMapPreset';
 
-// type VtkPolyData = any;
-
 export interface IsoFilledOptions {
     classHierarchy: string[];
     isoValues: number[];
@@ -26,6 +23,7 @@ export interface IsoFilledOptions {
     scalarRange?: [number, number] | null;
     preset?: IColorMapPreset;
     numberOfColors?: number;
+    smooth: boolean;
 }
 
 export interface IsoContoursFilledPublicAPI {
@@ -35,6 +33,8 @@ export interface IsoContoursFilledPublicAPI {
     setScalarArrayName: (name: string) => void;
     getScalarRange: () => [number, number] | null | undefined;
     setScalarRange: (range: [number, number] | null) => void;
+    getSmooth: () => boolean
+    setSmooth: (s: boolean) => void
     getPreset: () => IColorMapPreset | undefined;
     setPreset: (preset: IColorMapPreset) => void;
     getNumberOfColors: () => number | undefined;
@@ -132,6 +132,7 @@ function vtkIsoContoursFilled(publicAPI: IsoContoursFilledPublicAPI, model: Part
         scalarRange: null,
         preset: getDefaultPreset(),
         numberOfColors: 256,
+        smooth: true
     } as any;
 
     Object.assign(model, defaults, model);
@@ -144,7 +145,7 @@ function vtkIsoContoursFilled(publicAPI: IsoContoursFilledPublicAPI, model: Part
     model.classHierarchy!.push('vtkIsoContoursFilled');
 
     // Expose setters/getters
-    macro.setGet(publicAPI as any, model as any, ['isoValues', 'scalarArrayName', 'preset', 'numberOfColors']);
+    macro.setGet(publicAPI as any, model as any, ['isoValues', 'scalarArrayName', 'preset', 'numberOfColors', "smooth"]);
     macro.setGetArray(publicAPI as any, model as any, ['scalarRange'], 2);
 
     // --------------------------------------------------------------------------
@@ -188,13 +189,14 @@ function vtkIsoContoursFilled(publicAPI: IsoContoursFilledPublicAPI, model: Part
             new Uint32BufferAttribute(new Uint32Array(triIndices), 1)
         );
 
-        const opts: { min?: number; max?: number; preset?: IColorMapPreset; nbColors?: number } = {};
+        const opts: { min?: number; max?: number; preset?: IColorMapPreset; nbColors?: number, smooth?: boolean } = {};
         if (model.scalarRange && model.scalarRange.length === 2) {
             opts.min = model.scalarRange[0];
             opts.max = model.scalarRange[1];
         }
         if (model.preset) opts.preset = model.preset;
         if (model.numberOfColors) opts.nbColors = model.numberOfColors;
+        if (model.smooth !== undefined) opts.smooth = model.smooth;
 
         const result = createIsoContoursFilled(
             geom,
@@ -235,6 +237,19 @@ function vtkIsoContoursFilled(publicAPI: IsoContoursFilledPublicAPI, model: Part
             output.getPointData().setScalars(colorDA);
         }
 
+        // CRITICAL FIX: Add normals to the output polydata!
+        if (result.normal && result.normal.length > 0) {
+            const normalDA = vtkDataArray.newInstance({
+                name: 'Normals',
+                numberOfComponents: 3,
+                values: Float32Array.from(result.normal),
+            });
+            output.getPointData().setNormals(normalDA);
+            console.log('✅ Normals added to output:', result.normal.length / 3, 'vertices');
+        } else {
+            console.warn('⚠️ No normals in result');
+        }
+
         outData[0] = output;
     };
 }
@@ -249,32 +264,3 @@ export function extend(publicAPI: any, model: Partial<IsoFilledOptions> = {}) {
 export const newInstance = macro.newInstance(extend, 'vtkIsoContoursFilled');
 
 export default { newInstance, extend };
-
-/*
-USAGE EXAMPLE
--------------
-
-import vtkPolyData from 'vtk.js/Sources/Common/DataModel/PolyData';
-import vtkMapper from 'vtk.js/Sources/Rendering/Core/Mapper';
-import vtkActor from 'vtk.js/Sources/Rendering/Core/Actor';
-import vtkColorMaps from 'vtk.js/Sources/Rendering/Core/ColorTransferFunction/ColorMaps';
-import vtkIsoContoursFilled, { newInstance as newIsoBands } from './vtkIsoContoursFilled';
-
-// Get a VTK preset
-const viridisPreset = vtkColorMaps.getPresetByName('Viridis (matplotlib)');
-
-const bands = newIsoBands({
-  isoValues: [0.1, 0.2, 0.3, 0.4, 0.5],
-  scalarArrayName: 'Temperature',
-  scalarRange: [min, max],
-  preset: viridisPreset,
-  numberOfColors: 128,
-});
-
-bands.setInputData(myTriangulatedPolyDataWithPointScalars);
-
-const mapper = vtkMapper.newInstance({ scalarMode: 0, colorByArrayName: 'IsoBandColor' });
-mapper.setInputConnection(bands.getOutputPort());
-const actor = vtkActor.newInstance();
-actor.setMapper(mapper);
-*/

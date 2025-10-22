@@ -81,6 +81,7 @@ export default function App() {
     const [bandCount, setBandCount] = useState(13);
     const [linesEnabled, setLinesEnabled] = useState(false);
     const [lineCount, setLineCount] = useState(10);
+    const [smoothNormals, setSmoothNormals] = useState(true);
 
     // data state
     const [polyData, setPolyData] = useState<VtkPolyData | null>(null);
@@ -137,6 +138,16 @@ export default function App() {
             isoMapper.setScalarVisibility(true);
             isoActor.setMapper(isoMapper);
             isoActor.setVisibility(false);
+
+            // CRITICAL: Configure for smooth shading
+            const property = isoActor.getProperty();
+            property.setInterpolationToPhong();  // or .setInterpolationToGouraud()
+            property.setLighting(true);
+            property.setAmbient(0.2);
+            property.setDiffuse(0.8);
+            property.setSpecular(0.1);
+            property.setSpecularPower(20);
+
             ren.addActor(isoActor);
         }
 
@@ -152,7 +163,7 @@ export default function App() {
             isoLinesMapper.setResolveCoincidentTopologyPolygonOffsetParameters(2, 1);
 
             isoLinesActor.setMapper(isoLinesMapper);
-            isoLinesActor.getProperty().setLineWidth(2);
+            isoLinesActor.getProperty().setLineWidth(1);
             isoLinesActor.setVisibility(false);
             ren.addActor(isoLinesActor);
         }
@@ -244,6 +255,8 @@ export default function App() {
         isoFilter.setScalarArrayName(selectedProp);
         isoFilter.setScalarRange([mn, mx]);
         isoFilter.setIsoValues(isoValues);
+        isoFilter.setSmooth(smoothNormals)
+        isoFilter.modified()
         if (presetObj) {
             isoFilter.setPreset(presetObj);
         }
@@ -252,7 +265,7 @@ export default function App() {
         surfaceActor.setVisibility(false);
         isoActor.setVisibility(true);
         rwRef.current?.render();
-    }, [bandsEnabled, bandCount, selectedProp, preset, polyData, linesEnabled]);
+    }, [bandsEnabled, bandCount, selectedProp, preset, polyData, linesEnabled, smoothNormals]);
 
     // iso contour lines
     useEffect(() => {
@@ -452,7 +465,7 @@ export default function App() {
                     <label className="field">
                         <span className="label">Bands</span>
                         <input
-                            className="select select--small"
+                            className="checkbox select--small"
                             style={{ width: 40, textAlign: 'right' }}
                             type="number" min={2} max={32}
                             value={bandCount}
@@ -461,8 +474,17 @@ export default function App() {
                     </label>
                 )}
 
-                {/* Separator */}
-                <div style={{ width: 1, height: 24, background: '#ddd' }} />
+                {bandsEnabled && (
+                    <label className="field">
+                        <input
+                            className="checkbox"
+                            type="checkbox"
+                            checked={smoothNormals}
+                            onChange={(e) => setSmoothNormals(e.target.checked)}
+                        />
+                        Smooth shading
+                    </label>
+                )}
 
             </div>
         </div>

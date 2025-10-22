@@ -1,16 +1,19 @@
 /**
- * Iso-contour filled band generation
- * VTK-agnostic implementation using IColorMapPreset interface
+ * Iso-contour filled band generation - IMPROVED VERSION WITH SMOOTH NORMALS
+ * 
+ * This version computes smooth vertex normals by averaging face normals
+ * of adjacent triangles, resulting in smooth shading across iso-bands.
  */
 
 import { BufferAttribute, BufferGeometry, Uint32BufferAttribute } from "./attributes";
 import type { IColorMapPreset } from "../types/vtkColorMapPreset";
-import { 
-    createLookupTable, 
+import {
+    createLookupTable,
     sampleLookupTable,
     DEFAULT_PRESET,
-    type RGBColor 
+    type RGBColor
 } from "./vtkColorUtils";
+import { computeSmoothNormalsWithWelding } from "./smoothNormals";
 
 export type IsoFillReturnedType = {
     position: number[],
@@ -28,22 +31,26 @@ export type IsoFillReturnedType = {
  * @returns Geometry data for colored bands or undefined if no iso-values
  */
 export function createIsoContoursFilled(
-    geometry: BufferGeometry, 
-    attr: number[], 
-    isoList: number[], 
+    geometry: BufferGeometry,
+    attr: number[],
+    isoList: number[],
     {
         min = undefined,
         max = undefined,
         preset = DEFAULT_PRESET,
         nbColors = 256,
-    }: { 
-        min?: number, 
-        max?: number, 
-        preset?: IColorMapPreset, 
-        nbColors?: number 
+        smooth = true, // Option to enable smooth normal computation
+        weldingEpsilon = 1e-6, // Threshold for considering vertices coincident
+    }: {
+        min?: number,
+        max?: number,
+        preset?: IColorMapPreset,
+        nbColors?: number,
+        smooth?: boolean,
+        weldingEpsilon?: number
     } = {}
 ): IsoFillReturnedType | undefined {
-    const isoContours = new IsoContoursFilled(preset, nbColors, isoList);
+    const isoContours = new IsoContoursFilled(preset, nbColors, isoList, smooth, weldingEpsilon);
     return isoContours.run(geometry, attr, min, max);
 }
 
@@ -62,6 +69,8 @@ export class IsoContoursFilled {
     isoValues_: Array<number> = [];
     normals_: Array<number> = [];
     nnormals_: BufferAttribute | undefined;
+    smooth_: boolean;
+    weldingEpsilon_: number;
 
     get position() { return this.position_; }
     get index() { return this.index_; }
@@ -71,11 +80,15 @@ export class IsoContoursFilled {
      * @param preset VTK color map preset
      * @param nbColors Number of colors in lookup table
      * @param isoList Array of iso-values to generate bands
+     * @param smooth Whether to compute smooth normals (default: true)
      */
-    constructor(preset: IColorMapPreset, nbColors: number, isoList: number[]) {
+    constructor(preset: IColorMapPreset, nbColors: number, isoList: number[], smooth = true,
+        weldingEpsilon = 1e-6) {
         this.defaultColor_ = [0, 0, 0];
         this.lookupTable_ = createLookupTable(preset, nbColors);
         this.isoValues_ = isoList;
+        this.smooth_ = smooth;
+        this.weldingEpsilon_ = weldingEpsilon;
     }
 
     /**
@@ -87,9 +100,9 @@ export class IsoContoursFilled {
      * @returns Geometry data or undefined if no iso-values
      */
     run(
-        geometry: BufferGeometry, 
-        attr: number[], 
-        min: number | undefined, 
+        geometry: BufferGeometry,
+        attr: number[],
+        min: number | undefined,
         max: number | undefined
     ): IsoFillReturnedType | undefined {
         this.attr = attr;
@@ -122,11 +135,22 @@ export class IsoContoursFilled {
             this.classify(a[i], a[i + 1], a[i + 2]);
         }
 
+        // Post-process: compute smooth normals if enabled
+        if (this.smooth_ && this.position_.length > 0) {
+            //computeSmoothNormalsWithWelding(this.position_, this.index_, this.weldingEpsilon_);
+            return {
+                position: this.position_,
+                index: this.index_,
+                color: this.colors_,
+                normal: this.normals_
+            };
+        }
+
         return {
             position: this.position_,
             index: this.index_,
             color: this.colors_,
-            normal: this.normals_
+            normal: undefined
         };
     }
 
@@ -424,6 +448,8 @@ export class IsoContoursFilled {
         }
     }
 
+    // These methods now just store placeholder normals
+    // The actual smooth normals are computed in computeSmoothNormals()
     private addTri(
         point1: number[],
         point2: number[],
@@ -434,13 +460,15 @@ export class IsoContoursFilled {
         iso: number
     ): void {
         if (iso < this.vmin_ || iso > this.vmax_) return;
-        
+
         const c = this.getColorForValue(this.normalizeAttr(iso));
         const id = this.position_.length / 3;
-        
+
         this.position_.push(...point1, ...point2, ...point3);
         this.index_.push(id, id + 1, id + 2);
         this.colors_.push(...c, ...c, ...c);
+
+        // Store placeholder normals (will be recomputed if smoothNormals is enabled)
         this.normals_.push(...n1, ...n2, ...n3);
     }
 
@@ -456,10 +484,10 @@ export class IsoContoursFilled {
         iso: number
     ): void {
         if (iso < this.vmin_ || iso > this.vmax_) return;
-        
+
         const c = this.getColorForValue(this.normalizeAttr(iso));
         const id = this.position_.length / 3;
-        
+
         this.position_.push(...point1, ...point2, ...point3, ...point4);
         this.index_.push(
             id, id + 1, id + 2,
@@ -483,10 +511,10 @@ export class IsoContoursFilled {
         iso: number
     ): void {
         if (iso < this.vmin_ || iso > this.vmax_) return;
-        
+
         const c = this.getColorForValue(this.normalizeAttr(iso));
         const id = this.position_.length / 3;
-        
+
         this.position_.push(...point1, ...point2, ...point3, ...point4, ...point5);
         this.index_.push(
             id, id + 1, id + 2,
